@@ -1,0 +1,14 @@
+---
+title: "Homework 6"
+author: "Krishna Vemulapalli"
+output: github_document
+---
+
+```{r setup, message=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(knitr)
+library(janitor)
+```
+
+## Problem 1
