@@ -11,6 +11,7 @@ library(knitr)
 library(janitor)
 library(broom)
 library(purrr)
+library(modelr)
 ```
 
 ## Problem 1
@@ -99,3 +100,140 @@ lg_output_df %>%
 
 ## Problem 2
 
+Reading and cleaning birthweight raw data
+
+```{r}
+bw_df = read.csv("data/birthweight.csv", na = c("", "NA")) %>%
+  mutate(
+    babysex = as.factor(babysex),
+    frace = as.factor(frace),
+    malform = as.factor(malform),
+    mrace = as.factor(mrace),
+    wtgain = as.numeric(wtgain)) %>%
+  clean_names()
+  
+```
+
+
+From the journal article, "Factors influencing the birth weight in normal pregnancy", it can be understood that the following factors could impact birthweight: sex of the baby, gestational age, mother's height, mother's weight and mother's weight gain during pregnancy.
+
+Based on the article, a reasonable model will be as follows:       
+bwt ~ babysex + gaweeks + mheight + delwt + ppbmi + wtgain
+
+The variable ppwt was not included in the model due to its possible correlation with ppbwi. 
+
+```{r}
+model_original = lm(bwt ~ babysex + gaweeks + blength + mheight + delwt + ppbmi +wtgain,
+                    data = bw_df)
+
+model_original %>% 
+  tidy() %>%
+  kable()
+```
+
+
+A plot of model residuals against fitted values is as follows:  
+
+
+```{r}
+bw_df = bw_df %>%
+  add_residuals(model_original)
+
+bw_df = bw_df %>%
+  add_predictions(model_original)
+
+bw_df %>%
+  ggplot(aes(x = pred, y = resid)) + 
+  geom_point() +
+  geom_smooth(colour = "red") +
+  geom_hline(yintercept = 0, colour = "blue") +
+  labs(title = "A plot of model residuals against fitted values") +
+  xlab("Fitted values") +
+  ylab("Residuals") 
+```
+
+Creating models for comparison
+
+Comparison Model 1:
+```{r}
+model_comp_1 = lm(bwt ~ blength + gaweeks,
+                     data = bw_df)
+
+model_comp_1 %>% 
+  tidy() %>%
+  kable()
+```
+
+Comparison Model 2:
+```{r}
+model_comp_2 = lm(bwt ~ bhead*blength*babysex,
+                     data = bw_df)
+
+model_comp_2 %>% 
+  tidy() %>%
+  kable()
+```
+
+The models will be plotted in order to get intuition for goodness of fit
+
+```{r}
+bw_df %>%
+  select(-c(resid, pred)) %>%
+  gather_predictions(model_original, model_comp_1, model_comp_2) %>%
+  mutate(model = fct_inorder(model)) %>%
+  ggplot(aes(x = blength, y = bwt)) +
+  geom_point(alpha = .5) +
+  geom_line(aes(y = pred), color = "red") + 
+  facet_grid(~model)
+
+```
+
+Since the above plot doesn't give a clear idea, we will use the prediction errors (RMSE) to compare these three models using the cross validation technique. 
+
+```{r}
+cv_df = 
+  bw_df %>%
+  select(-c(resid, pred)) %>% 
+  crossv_mc(100) %>%
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble)
+  )
+  
+cv_df = 
+  cv_df %>%
+  mutate(
+    mod_org  = map(.x = train, ~lm(bwt ~ babysex + gaweeks + blength + mheight + delwt + ppbmi +wtgain,data = .x)),
+    mod_comp_1  = map(.x = train, ~lm(bwt ~ blength + gaweeks, data = .x)),
+    mod_comp_2  = map(.x = train, ~lm(bwt ~ bhead*blength*babysex, data = .x))
+    ) %>% 
+  mutate(
+    rmse_original = map2_dbl(.x = mod_org,.y = test, ~rmse(model = .x, data = .y)),
+    rmse_comp_1   = map2_dbl(.x = mod_comp_1,.y = test, ~rmse(model = .x, data = .y)),
+    rmse_comp_2 = map2_dbl(.x = mod_comp_2,.y = test, ~rmse(model = .x, data = .y))
+    )
+```
+
+We will now plot the prediction error distribution for each model. This plot will assist in visually comparing the three models. 
+
+```{r}
+cv_df %>% 
+  select(starts_with("rmse")) %>% 
+  pivot_longer(
+    everything(),
+    names_to = "model", 
+    values_to = "rmse",
+    names_prefix = "rmse_") %>% 
+  mutate(model = fct_inorder(model)) %>% 
+  ggplot(aes(x = model, y = rmse)) + geom_violin()
+```
+
+Based on the above plot, we can clearly observe that the third model (with head circumference, length, sex, and all possible interactions terms) has the lowest distribution of RMSE when compared to the other models. However, the third model is relatively more complex and difficult to interpret. So, the best model can't be decided very easily and it depends on the context. The third model would be more efficient for the prediction purpose, but for interpretation purpose we might have to choose a different model. 
+
+## Problem 3
+
+
+
+### References
+
+* https://www.ajog.org/article/0002-9378(65)90248-6/pdf#articleInformation
