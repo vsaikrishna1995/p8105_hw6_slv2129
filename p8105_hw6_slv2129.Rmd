@@ -12,6 +12,8 @@ library(janitor)
 library(broom)
 library(purrr)
 library(modelr)
+library(rnoaa)
+library(modelr)
 ```
 
 ## Problem 1
@@ -97,6 +99,7 @@ lg_output_df %>%
   xlab("City, State")
 ```
 
+From the above plot, we can observe that Tampa, FL had the highest odds ratio for solving homocides comparing Black victims to white victims and Boston, MA had the lowest odds ratio. 
 
 ## Problem 2
 
@@ -232,7 +235,101 @@ Based on the above plot, we can clearly observe that the third model (with head 
 
 ## Problem 3
 
+Downloading th 2017 Central Park weather data
 
+```{r, warning= FALSE, message= FALSE}
+weather_df = 
+  meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") %>%
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) %>%
+  select(name, id, everything())
+```
+
+
+Plotting to visualize the relationship between tmax and tmin
+
+```{r}
+weather_df %>%
+  ggplot(aes(x = tmin, y = tmax)) +
+  geom_point()
+```
+
+From the plot, we can observe a positive correlation between tmax and tmin variables. As mentioned in the the instructions, the distribution trend indicates a simple linear regression. 
+
+Creating 5000 bootstrap samples to investigate the distribution of coefficients under repeated sampling.
+
+```{r}
+boot_df = 
+  weather_df %>%
+  bootstrap(n= 5000) %>%
+  mutate(
+    models = map(strap, ~ lm(tmax ~ tmin, data = .x)),
+    results = map(models, tidy),
+    results_2 = map(models, glance)) %>% 
+  select(.id, results, results_2) %>%
+  mutate(estimate_1 = NA, estimate_2 = NA)
+
+for (i in 1:5000){
+  boot_df$estimate_1[i] = boot_df$results[[i]]$estimate[1]
+}
+
+for (i in 1:5000){
+  boot_df$estimate_2[i] = boot_df$results[[i]]$estimate[2]
+}
+  
+boot_df = 
+  boot_df %>%
+  unnest(results_2) %>%
+  mutate(log_product_coeff = log(estimate_1*estimate_2)) %>% 
+  select(.id, r.squared, log_product_coeff)
+  
+```
+
+
+95% confidence interval for r-squared:
+
+```{r}
+boot_df %>%
+  summarize(
+    ci_lower = quantile(r.squared, 0.025), 
+    ci_upper = quantile(r.squared, 0.975)) %>%
+  kable()
+```
+
+95% confidence interval for log product of coefficients:
+
+```{r}
+boot_df %>%
+  summarize(
+    ci_lower = quantile(log_product_coeff, 0.025), 
+    ci_upper = quantile(log_product_coeff, 0.975)) %>%
+  kable()
+```
+
+Distribution of r-squared values:
+
+```{r}
+boot_df %>%
+  ggplot(aes(x = r.squared)) + geom_density()
+```
+
+The plot depicted above displays a curve that closely resembles the normal distribution. This plot doesn't indicate the presence of any large outliers. 
+
+
+Distribution of log product of coefficients:
+
+```{r}
+boot_df %>%
+  ggplot(aes(x = log_product_coeff)) + geom_density()
+```
+
+From the above density plot, it can be inferred that there is a presence of heavy tail on the left hand side of the graph. However, this plot doesn't indicate the presence of any large outliers. 
 
 ### References
 
